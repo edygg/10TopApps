@@ -8,6 +8,13 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 import java.util.ArrayList;
 
+import com.android.volley.Request;
+import com.android.volley.RequestQueue;
+import com.android.volley.Response;
+import com.android.volley.VolleyError;
+import com.android.volley.toolbox.StringRequest;
+import com.android.volley.toolbox.Volley;
+
 import android.app.Activity;
 import android.os.AsyncTask;
 import android.os.Bundle;
@@ -18,12 +25,14 @@ import android.view.View;
 import android.widget.ArrayAdapter;
 import android.widget.ListView;
 import android.widget.ProgressBar;
+import android.widget.Toast;
 
 public class MainActivity extends Activity {
 
-	//URL
+	//Volley
 	public final String TOP_10_DOWNLOAD_APPS_URL = "http://ax.itunes.apple.com/WebObjects/MZStoreServices.woa/ws/RSS/topfreeapplications/limit=10/xml";
-	
+	private final String REQUEST_TAG = "RSSFEED";
+	RequestQueue queue;
 	//Components
 	private ListView appList;
 	private ProgressBar pgDownloadData;
@@ -33,8 +42,30 @@ public class MainActivity extends Activity {
 		super.onCreate(savedInstanceState);
 		setContentView(R.layout.activity_main);
 		initComponents();
-		DownloadData downloader = new DownloadData(appList);
-		downloader.execute(TOP_10_DOWNLOAD_APPS_URL);
+		queue = Volley.newRequestQueue(this);
+		
+		pgDownloadData.setVisibility(View.VISIBLE);
+		StringRequest top10AppsRSSRequest = new StringRequest(Request.Method.GET, TOP_10_DOWNLOAD_APPS_URL, new Response.Listener<String>() {
+
+			@Override
+			public void onResponse(String xmlData) {
+				pgDownloadData.setVisibility(View.INVISIBLE);
+				ArrayList<Application> apps = ApplicationParser.parse(xmlData);
+				ArrayAdapter<Application> adapter = new ArrayAdapter<Application>(MainActivity.this, R.layout.app_list_item, apps);
+				appList.setAdapter(adapter);
+				appList.setVisibility(View.VISIBLE);
+			}
+			
+		}, new Response.ErrorListener() {
+
+			@Override
+			public void onErrorResponse(VolleyError arg0) {
+				Toast.makeText(MainActivity.this, "Cannot download rss feed.", Toast.LENGTH_LONG).show();
+			}
+			
+		});
+		top10AppsRSSRequest.setTag(REQUEST_TAG);
+		queue.add(top10AppsRSSRequest);
 	}
 	
 	private void initComponents() {
@@ -60,98 +91,13 @@ public class MainActivity extends Activity {
 		}
 		return super.onOptionsItemSelected(item);
 	}
-	
-	private class DownloadData extends AsyncTask<String, Void, Void> {
-		
-		private String xmlData;
-		private boolean downloaded;
-		private int totalCharacters;
-		private ListView container;
-		
-		public DownloadData(ListView container) {
-			this.xmlData = "";
-			this.downloaded = false;
-			this.totalCharacters = 0;
-			this.container = container;
-		}
-		
-		public boolean isDownloaded() {
-			return downloaded;
-		}
 
-		public String getXmlData() {
-			return xmlData;
-		}
-		
-
-		@Override
-		protected void onPreExecute() {
-			pgDownloadData.setVisibility(View.VISIBLE);
-		}
-
-		@Override
-		protected Void doInBackground(String... urls) {
-			try {
-				xmlData += downloadXML(urls[0]);
-			} catch (IOException e) {
-				e.printStackTrace();
-			}
-			
-			return null;
-		}
-		
-		@Override
-		protected void onPostExecute(Void result) {
-			Log.d("DownloadXML", "Characters = " + totalCharacters);
-			pgDownloadData.setVisibility(View.INVISIBLE);
-			downloaded = true;
-			ArrayList<Application> apps = ApplicationParser.parse(this.xmlData);
-			ArrayAdapter<Application> adapter = new ArrayAdapter<Application>(MainActivity.this, R.layout.app_list_item, apps);
-			container.setAdapter(adapter);
-			container.setVisibility(View.VISIBLE);
-			
-		}
-
-		private String downloadXML(String url) throws IOException {
-			final int BUFFER_SIZE = 2000;
-			final int READ_TIMEOUT = 10000;
-			final int CONNECTION_TIMEOUT = 15000;
-			
-			InputStreamReader in = null;
-			
-			String xmlContents = "";
-			
-			try {
-				URL urlConnection = new URL(url);
-				HttpURLConnection conn = (HttpURLConnection) urlConnection.openConnection();
-				conn.setReadTimeout(READ_TIMEOUT);
-				conn.setConnectTimeout(CONNECTION_TIMEOUT);
-				conn.setRequestMethod("GET");
-				conn.setDoInput(true);
-				int response = conn.getResponseCode();
-				Log.d("DownloadXML", "The response is: " + response);
-				
-				if (response == 200) { //OK
-					in = new InputStreamReader(conn.getInputStream());
-					
-					int charsRead;
-					char[] inputBuffer = new char[BUFFER_SIZE];
-					
-					while ((charsRead = in.read(inputBuffer)) > 0) {
-						totalCharacters += charsRead;
-						xmlContents += String.copyValueOf(inputBuffer, 0, charsRead);
-						inputBuffer = new char[BUFFER_SIZE];
-					}
-					return xmlContents;
-				} else {
-					throw new IOException("Error getting feed.");
-				}
-			} finally {
-				if (in != null)
-					in.close();
-			}
-		}
-		
+	@Override
+	protected void onStop() {
+		super.onStop();
+		if (queue != null)
+			queue.cancelAll(REQUEST_TAG);
 	}
+	
 	
 }
